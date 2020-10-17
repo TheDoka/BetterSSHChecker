@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "BetterSSHChecker": {
+      "commandName": "Project",
+      "commandLineArgs": "--source:result.txt --userpass:userpass.txt -t 10 -T 10"
+    }
+  }
+}

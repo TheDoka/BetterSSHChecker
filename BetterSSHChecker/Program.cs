@@ -60,7 +60,7 @@ namespace BetterSSHChecker
                 }
             }
 
-            Lord = new Pwner(ips_source, userpass_source, timeout, threads);
+            Lord = new Pwner("dumbtest.txt", userpass_source, timeout, threads);
             Lord.startCheck();
 
             Console.ReadKey();
@@ -199,34 +199,43 @@ namespace BetterSSHChecker
             
             HashSet<string> tmp = new HashSet<string>();
 
-            explodeNumber = IPS.Count / explodeNumber;
+            int numberOfSets          = explodeNumber,
+                numberOfLinePerSet    = IPS.Count / explodeNumber;
 
             // If decomposable
-            if (threads < IPS.Count || explodeNumber != 0)
+            if (IPS.Count > threads || numberOfLinePerSet >= 1)
             {
-                int i = 0;
+                int sets = 0,
+                    i    = 0;
+
+                // Distribute i line for n sets
                 foreach (string line in toExplode)
                 {
 
                     tmp.Add(line);
                     i++;
 
-                    if (i == explodeNumber)
+                    //We make sure we only make explodeNumber of sets.
+                    if (i == numberOfLinePerSet && sets < numberOfSets)
                     {
                         explodedResult.Add(tmp);
                         tmp = new HashSet<string>();
                         i = 0;
+                        sets++;
                     }
 
                 }
 
                 // If there is any ips left, add them to the last set
-                if (explodeNumber > 0 && IPS.Count % explodeNumber > 0)
+                if (IPS.Count % numberOfSets > 0)
                 {
+                    Console.WriteLine("bbbbb");
+
                     explodedResult[explodedResult.Count-1].UnionWith(tmp);
                 }
 
             } else {
+                Console.WriteLine("c");
                 explodedResult.Add(toExplode);
                 threads = 1;
             }
@@ -250,7 +259,7 @@ namespace BetterSSHChecker
             w.Start();
 
             tasks = new Task[ThreadsWorkingSets.Count];
-
+            Console.WriteLine(ThreadsWorkingSets.Count);
             foreach (HashSet<string> currentSet in ThreadsWorkingSets)
             {
 

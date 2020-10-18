@@ -1,12 +1,10 @@
 ﻿using Renci.SshNet;
-using Renci.SshNet.Messages.Connection;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,17 +12,33 @@ namespace BetterSSHChecker
 {
     class Program
     {
+
+        
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetConsoleCtrlHandler(ConsoleEventDelegate callback, bool add);
+
+        static ConsoleEventDelegate handler;                                          
+        private delegate bool ConsoleEventDelegate(int eventType);
+
+        private static Pwner Lord;
+
         static void Main(string[] args)
         {
-            
+
             /*  
              * pwner.exe --source:result.txt --userpass:userpass.txt -t 10 -T 10
              * 
              * 
              */
 
-            string ips_source = "", userpass_source = "";
-            int timeout = 1, threads = 1;
+            handler = new ConsoleEventDelegate(ConsoleEventCallback);
+            SetConsoleCtrlHandler(handler, true);
+
+            string ips_source      = "", 
+                   userpass_source = "";
+
+            int timeout = 1, 
+                threads = 1;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -46,11 +60,26 @@ namespace BetterSSHChecker
                 }
             }
 
-            Pwner Lord = new Pwner("dumb.txt", userpass_source, 1000, 10);
-            
-            Console.WriteLine("Done");
+            Lord = new Pwner(ips_source, userpass_source, timeout, threads);
+            Lord.startCheck();
+
             Console.ReadKey();
 
+        }
+
+        /// <summary>
+        /// Manage callback for console events.
+        /// </summary>
+        static bool ConsoleEventCallback(int eventType)
+        {
+            // Closing console
+            if (eventType == 2)
+            {
+                Console.Clear();
+                Console.WriteLine("Quitting...");
+                Lord.abrutEnd();
+            }
+            return false;
         }
 
 
@@ -62,23 +91,29 @@ namespace BetterSSHChecker
     class Pwner
     {
 
-        private HashSet<string> IPS = new HashSet<string>();
+        private Task[] utilityTasks = new Task[2];
+        private Task[] tasks;
+
+        private HashSet<string> IPS              = new HashSet<string>();
         private HashSet<Credentials> credentials = new HashSet<Credentials>();
 
-        int timeout;
-        int threads;
+        int timeout,
+            threads;
 
-        bool isUp = false;
-        int runningThread   = 0;
-        int total_attemps   = 0;
-        int testedAttemps   = 0;
+        bool isUp         = false;
 
-        int maxTimeoutCount = 5;
+        int runningThread = 0,
+            total_attemps = 0,
+            testedAttemps = 0,
+            testedIPs     = 0;
+
+        bool drawProgressBar = true;
+        int maxTimeoutCount  = 5;
 
         /// <summary>
         /// Contening an string username and string password.
         /// </summary>
-        struct Credentials
+        private struct Credentials
         {
             public string username;
             public string password;
@@ -95,11 +130,10 @@ namespace BetterSSHChecker
         /// <summary>
         /// Contening an Exception Exception and string Uname.
         /// </summary>
-        public class SshResponse
+        private class SshResponse
         {
             public Exception Exception;
             public string uname;
-
         }
 
         /// <summary>
@@ -124,7 +158,7 @@ namespace BetterSSHChecker
         /// </summary>
         /// <param name="target_file">The <see cref="string"/> instance that represents the location of the IP file.</param>
         /// <param name="credentials_file">The <see cref="string"/> instance that represents the location of the credentials file.</param>
-        public void import(string target_file, string credentials_file)
+        private void import(string target_file, string credentials_file)
         {
 
             Stopwatch w = new Stopwatch();
@@ -145,9 +179,11 @@ namespace BetterSSHChecker
         /// <summary>
         /// Shows begining message.
         /// </summary>
-        public void Prelude()
+        private void Prelude()
         {
             logIt($"Looking for {IPS.Count}*{credentials.Count}:{total_attemps} attempts.");
+            logIt($"{IPS.Count * credentials.Count} attemps / {threads}: {total_attemps / threads} per threads");
+            Console.WriteLine();
         }
 
         /// <summary>
@@ -156,7 +192,7 @@ namespace BetterSSHChecker
         /// <param name="toExplode">The <see cref="HashSet"/> instance that initial HashSet to split.</param>
         /// <param name="explodeNumber">The <see cref="int"/> instance that represents the number of HashSet in the return list.</param>
         /// <returns>An instance of the <see cref="List"/> class contening explodedNumber of toExplode's splitted string.</returns>
-        public List<HashSet<string>> splitHashSet(HashSet<string> toExplode, int explodeNumber)
+        private List<HashSet<string>> splitHashSet(HashSet<string> toExplode, int explodeNumber)
         {
 
             List<HashSet<string>> explodedResult = new List<HashSet<string>>();
@@ -164,28 +200,35 @@ namespace BetterSSHChecker
             HashSet<string> tmp = new HashSet<string>();
 
             explodeNumber = IPS.Count / explodeNumber;
-            Console.WriteLine(explodeNumber);
-            int i = 0;
-            foreach (string line in toExplode)
+
+            // If decomposable
+            if (threads < IPS.Count || explodeNumber != 0)
             {
-
-                tmp.Add(line);
-                i++;
-
-                if (i == explodeNumber)
+                int i = 0;
+                foreach (string line in toExplode)
                 {
-                    explodedResult.Add(tmp);
-                    tmp = new HashSet<string>();
-                    i = 0;
+
+                    tmp.Add(line);
+                    i++;
+
+                    if (i == explodeNumber)
+                    {
+                        explodedResult.Add(tmp);
+                        tmp = new HashSet<string>();
+                        i = 0;
+                    }
+
                 }
 
+                // If there is any ips left, add them to the last set
+                if (explodeNumber > 0 && IPS.Count % explodeNumber > 0)
+                {
+                    explodedResult[explodedResult.Count-1].UnionWith(tmp);
+                }
 
-            }
-
-            // If there is any ips left, add them to the last set
-            if (IPS.Count % explodeNumber > 0)
-            {
-                explodedResult[explodedResult.Count-1].UnionWith(tmp);
+            } else {
+                explodedResult.Add(toExplode);
+                threads = 1;
             }
 
             tmp = null;
@@ -204,34 +247,34 @@ namespace BetterSSHChecker
 
             List<HashSet<string>> ThreadsWorkingSets = splitHashSet(IPS, threads);
             
-            logIt($"{IPS.Count * credentials.Count} attemps / {threads}: {total_attemps / threads} per threads");
-
             w.Start();
 
-            Task[] tasks = new Task[ThreadsWorkingSets.Count];
+            tasks = new Task[ThreadsWorkingSets.Count];
 
             foreach (HashSet<string> currentSet in ThreadsWorkingSets)
             {
 
                 Task v = new Task(() => {
-                        runningThread++;
+                        Interlocked.Increment(ref runningThread);
+                        // Wait for all the threads to be ready.
                         while(!isUp)
                         {
                             System.Threading.Thread.Sleep(100);
                         }
 
                         int currentThread = (int)Task.CurrentId;
+                       
+                        bool exitLoop,
+                             tooManyTimeout;
 
-                        bool exitLoop;
-                        bool tooManyTimeout;
                         int  timeoutCount;
 
                         foreach (string IP in currentSet)
                         {
 
-                            timeoutCount = 0;
-                            tooManyTimeout = false;
-                            exitLoop     = false;
+                            timeoutCount    = 0;
+                            tooManyTimeout  = false;
+                            exitLoop        = false;
 
                             foreach (Credentials cred in credentials)
                             {
@@ -239,7 +282,7 @@ namespace BetterSSHChecker
                                 SshResponse Response = meet(IP, cred.username, cred.password);
                                 Interlocked.Increment(ref testedAttemps);
 
-                                if (!(Response.Exception is null))
+                                if (Response.Exception != null)
                                 {
 
                                     switch (Response.Exception.GetType().ToString())
@@ -282,6 +325,9 @@ namespace BetterSSHChecker
 
                             }
 
+
+                            Interlocked.Increment(ref testedIPs);
+
                         }
                         
                        Interlocked.Decrement(ref runningThread);
@@ -291,7 +337,6 @@ namespace BetterSSHChecker
                 tasks[v.Id-1] = v;
             }
 
-            
             // Wait Until all threads started
             while (!isUp)
             {
@@ -310,23 +355,22 @@ namespace BetterSSHChecker
             monitorMaster();
             
             Task.WaitAll(tasks);
-            
-            w.Stop();
-            
             isUp = false;
+            w.Stop();
+
+            Task.WaitAll(utilityTasks);
             
             logIt($"Exec {w.ElapsedMilliseconds}ms");
-            Console.WriteLine(testedAttemps);
 
         }
 
-
+  
         /// <summary>
         /// Import source file into a HashSet of <typeparamref name="T"/> destination. 
         /// </summary>
         /// <param name="source">The <see cref="string"/> instance that represents the location of the source file.</param>
         /// <param name="destination">The <see cref="HashSet"/> instance that represents the destination of the imported source.</param>
-        public void getData<T>(string source, HashSet<T> destination)
+        private void getData<T>(string source, HashSet<T> destination)
         {
 
             using (StreamReader sr = File.OpenText(source))
@@ -364,7 +408,7 @@ namespace BetterSSHChecker
         /// <param name="user">The <see cref="string"/> instance that represents the login.</param>
         /// <param name="pass">The <see cref="string"/> instance that represents the password.</param>
         /// <returns>An instance of the <see cref="SshResponse"/> class representing the result of the connection, an <see cref="Exception"/> if error; otherwise, an uname.</returns>
-        SshResponse meet(string targetIP, string user, string pass)
+        private SshResponse meet(string targetIP, string user, string pass)
         {
 
             SshResponse response = new SshResponse();
@@ -402,9 +446,11 @@ namespace BetterSSHChecker
         /// Write a message to the console with "[Current Time] message" syntax.
         /// </summary>
         /// <param name="message">The <see cref="string"/> instance that represents the message to display</param>
-        public void logIt(string message)
+        private void logIt(string message)
         {
-            Console.WriteLine("[{0}] {1}", DateTime.Now.ToString("hh:mm:ss"), message);
+
+            string tmp = string.Format("[{0}] {1}", DateTime.Now.ToString("hh:mm:ss"), message);
+            Console.WriteLine("\r{0}{1}", tmp, new string(' ', tmp.Length > 100 ? 0 : Console.WindowWidth - tmp.Length));
         }
 
         /// <summary>
@@ -413,21 +459,22 @@ namespace BetterSSHChecker
         /// <param name="message">The <see cref="string"/> instance that represents the message to display/param>
         /// <param name="thread">The <see cref="int"/> instance that represents the caller's thread number./param>
         /// <param name="success">The <see cref="bool"/> instance that represents if success or not (+/-).</param>
-        public void logIt(string message, int thread, bool success)
+        private void logIt(string message, int thread, bool success)
         {
-            Console.WriteLine("[{0}]#T{1}({2}) {3}", DateTime.Now.ToString("hh:mm:ss"), thread, success ? "+" : "-", message);
+            string tmp = string.Format("[{0}]#T{1}({2}) {3}", DateTime.Now.ToString("hh:mm:ss"), thread, success ? "+" : "-", message);
+            // Display [message][blank] to erase the previous's progressbar.
+            // We also check that the message is shorter than ne console length.
+            Console.WriteLine("\r{0}{1}", tmp, new string(' ', tmp.Length > 100 ?0:Console.WindowWidth - tmp.Length));
         }
-       
+
         /// <summary>
         /// Change console title to "{tested attemps/total} attemps r{number of attemps per second) r{number of attemps per minute}
         /// </summary>
-        /// <param name="message">The <see cref="string"/> instance that represents the message to display/param>
-        /// <param name="thread">The <see cref="int"/> instance that represents the caller's thread number./param>
-        /// <param name="success">The <see cref="bool"/> instance that represents if success or not (+/-).</param>
-        public void monitorMaster()
+        private void monitorMaster()
         {
+
             // Monitor rates
-            new Task(() =>
+            Task masterConsole = new Task(() =>
             {
                 int last_tested = 0;
                 int minute_count = 0;
@@ -452,9 +499,95 @@ namespace BetterSSHChecker
                         minute_count++;
                     }
                 }
-            }).Start();
+
+                // Last update
+                Console.Title = String.Format("{0}/{1} r{2}/s r{3}/m", testedAttemps, total_attemps, testedAttemps - last_tested, minute_rate);
+
+            });
+
+            if (drawProgressBar)
+            {
+                Task masterProgressBar = new Task(() => {
+                    monitorProgressBar();
+                });
+                utilityTasks[1] = masterProgressBar;
+                masterProgressBar.Start();
+            }
+
+            utilityTasks[0] = masterConsole;
+            masterConsole.Start();
+
         }
 
+        /// <summary>
+        /// Draw a progressbar at the bottom of the console, [=100=] 0.00%.
+        /// </summary>
+        private void monitorProgressBar()
+        {
+
+            int x;
+            int y;
+            float pourcentage = 0;
+            string done       = "";
+            string toDo       = "";
+
+            /*
+             * Draw progress bar while checking is running.
+             */
+            while (isUp)
+            {
+
+                /*
+                 * Compute progressbar
+                 */
+                pourcentage = (float)testedIPs / IPS.Count * 100;
+                done = string.Concat(Enumerable.Repeat("█", Convert.ToInt32(pourcentage)));
+                toDo = string.Concat(Enumerable.Repeat("░", 100 - (Convert.ToInt32(pourcentage))));
+
+                /*
+                 * Get old cursor position
+                 */
+                x = Console.CursorLeft;
+                y = Console.CursorTop;
+
+                /*
+                 * Set cursor to bottom line
+                 */
+                Console.CursorTop = Console.WindowTop + Console.WindowHeight - 1;
+                
+                /*
+                 * Draw the bar
+                 */
+                Console.Write($"[{done}{toDo}] {pourcentage:0.00#}%");
+
+                /*
+                 * Move cursor to the old position
+                 */
+                Console.SetCursorPosition(x, y);
+
+                System.Threading.Thread.Sleep(100);
+
+            }
+
+
+            // Last update
+            pourcentage = (float)testedIPs / IPS.Count * 100;
+            done = string.Concat(Enumerable.Repeat("█", Convert.ToInt32(pourcentage)));
+            toDo = string.Concat(Enumerable.Repeat("░", 100 - (Convert.ToInt32(pourcentage))));
+            Console.CursorTop = Console.WindowTop + Console.WindowHeight - 1;
+            Console.Write($"\r[{done}{toDo}] {pourcentage:0.00#}%");
+
+        }
+
+        /// <summary>
+        /// Send end signal and wait for every threads to stop.
+        /// </summary>
+        public void abrutEnd()
+        {
+            isUp = false;
+            Task.WaitAll(utilityTasks);
+            Task.WaitAll(tasks);
+        }
     }
 
 }

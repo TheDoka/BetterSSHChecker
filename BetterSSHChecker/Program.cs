@@ -229,13 +229,10 @@ namespace BetterSSHChecker
                 // If there is any ips left, add them to the last set
                 if (IPS.Count % numberOfSets > 0)
                 {
-                    Console.WriteLine("bbbbb");
-
                     explodedResult[explodedResult.Count-1].UnionWith(tmp);
                 }
 
             } else {
-                Console.WriteLine("c");
                 explodedResult.Add(toExplode);
                 threads = 1;
             }
@@ -259,7 +256,7 @@ namespace BetterSSHChecker
             w.Start();
 
             tasks = new Task[ThreadsWorkingSets.Count];
-            Console.WriteLine(ThreadsWorkingSets.Count);
+
             foreach (HashSet<string> currentSet in ThreadsWorkingSets)
             {
 

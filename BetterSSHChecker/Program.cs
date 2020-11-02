@@ -26,7 +26,7 @@ namespace BetterSSHChecker
         {
 
             /*  
-             * pwner.exe --source:result.txt --userpass:userpass.txt -t 10 -T 10
+             * pwner.exe --source:result.txt --userpass:userpass.txt -t 10 -T 10 -maxT 5
              * 
              * 
              */
@@ -37,16 +37,17 @@ namespace BetterSSHChecker
             string ips_source      = "", 
                    userpass_source = "";
 
-            int timeout = 1, 
-                threads = 1;
+            int timeout         = 1, 
+                threads         = 1,
+                maxTimeoutCount = 5;
 
             for (int i = 0; i < args.Length; i++)
             {
-                if (args[i].Contains("source"))
+                if (args[i].Contains("--source"))
                 {
                     ips_source = args[i].Split(":")[1];
                 }
-                if (args[i].Contains("userpass"))
+                if (args[i].Contains("--userpass"))
                 {
                     userpass_source = args[i].Split(":")[1];
                 }
@@ -58,9 +59,15 @@ namespace BetterSSHChecker
                 {
                     threads = int.Parse(args[i+1]);
                 }
+                if (args[i].Contains("-maxT"))
+                {
+                    maxTimeoutCount = int.Parse(args[i+1]);
+                }
             }
 
-            Lord = new Pwner("dumbtest.txt", userpass_source, timeout, threads);
+            Lord = new Pwner(ips_source, userpass_source, timeout, threads);
+            Lord.drawProgressBar = false;
+            Lord.maxTimeoutCount = maxTimeoutCount;
             Lord.startCheck();
 
             Console.ReadKey();
@@ -107,8 +114,8 @@ namespace BetterSSHChecker
             testedAttemps = 0,
             testedIPs     = 0;
 
-        bool drawProgressBar = true;
-        int maxTimeoutCount  = 5;
+        public bool drawProgressBar = true;
+        public int maxTimeoutCount  = 5;
 
         /// <summary>
         /// Contening an string username and string password.
@@ -174,7 +181,6 @@ namespace BetterSSHChecker
             logIt($"Importated {IPS.Count + credentials.Count} lines in: {w.ElapsedMilliseconds}ms");
 
         }
-
 
         /// <summary>
         /// Shows begining message.
@@ -364,8 +370,13 @@ namespace BetterSSHChecker
             isUp = false;
             w.Stop();
 
-            Task.WaitAll(utilityTasks);
-            
+            if (utilityTasks[1] != null) 
+            {
+                Task.WaitAll(utilityTasks);
+            } else {
+                utilityTasks[0].Wait();
+            }
+
             logIt($"Exec {w.ElapsedMilliseconds}ms");
 
         }

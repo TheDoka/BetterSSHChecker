@@ -2,7 +2,7 @@
   "profiles": {
     "BetterSSHChecker": {
       "commandName": "Project",
-      "commandLineArgs": "--source:result.txt --userpass:userpass.txt -t 3000 -T 10"
+      "commandLineArgs": "--source:result.txt --userpass:userpass.txt -t 3000 -T 10 -mT 8 -dp"
     }
   }
 }

@@ -26,7 +26,7 @@ namespace BetterSSHChecker
         {
 
             /*  
-             * pwner.exe --source:result.txt --userpass:userpass.txt -t 10 -T 10 -maxT 5
+             * pwner.exe --source:result.txt --userpass:userpass.txt -t 10 -T 10 -mT 5 --dp
              * 
              * 
              */
@@ -37,9 +37,11 @@ namespace BetterSSHChecker
             string ips_source      = "", 
                    userpass_source = "";
 
-            int timeout         = 1, 
-                threads         = 1,
-                maxTimeoutCount = 5;
+            int timeout          = 1, 
+                threads          = 1,
+                maxTimeoutCount  = 5;
+
+            bool drawProgressBar = false;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -59,14 +61,18 @@ namespace BetterSSHChecker
                 {
                     threads = int.Parse(args[i+1]);
                 }
-                if (args[i].Contains("-maxT"))
+                if (args[i].Contains("-mT"))
                 {
                     maxTimeoutCount = int.Parse(args[i+1]);
+                }
+                if (args[i].Contains("--dp"))
+                {
+                    drawProgressBar = true;
                 }
             }
 
             Lord = new Pwner(ips_source, userpass_source, timeout, threads);
-            Lord.drawProgressBar = false;
+            Lord.drawProgressBar = drawProgressBar;
             Lord.maxTimeoutCount = maxTimeoutCount;
             Lord.startCheck();
 
